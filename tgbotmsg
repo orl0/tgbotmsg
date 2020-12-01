@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+#
+# TODO: DESCRIPTION
+#
+#
+# The MIT License (MIT)
+# Copyright (c) 2020 Roman Orlovsky (https://orl0.github.io/)
+
+# Setting some options:
+# - Exit on error
+# - Do not allow use of undefined vars (on version 4.4+).
+# - Set the exit code of a pipeline to zero or to the rightmost exit code
+if test "$BASH" = "" || "$BASH" -uc "a=();true \"\${a[@]}\"" 2>/dev/null; then
+    set -euo pipefail
+else
+    # Bash 4.3 and older chokes on empty arrays with set -u.
+    set -eo pipefail
+fi
+
+# Debug mode:
+# set -o xtrace
+
+# Read enviroment variables from '.env' file if exist
+# TODO: not a great idea to source untrusted files...
+[[ -f ".env" ]] && { set -a; source ".env"; set +a; } 
+
+# Some usefull variables
+readonly __base="$(basename "${BASH_SOURCE[0]}")"
+
+# And basic usefull functions
+installed() { [[ $(type -p "${1}") ]]; }
+err() {
+  echo "${__base}: $*" >&2
+#   echo "Try '${__base} --help' for more information." >&2
+}
+
+# Main loop
+function main() {
+  if ! installed "curl"; then
+    err "error: 'curl' package is requered!"
+    err "Please install it and run again."
+    exit 1
+  fi
+
+  # TODO: this array could have options
+  local -r args=( "$@" )
+
+  # TODO: every file could be checked before passing to cat
+
+  local -r api_key="${TG_BOT_API_KEY:-}"
+  local -r chat_id="${TG_BOT_CHAT_ID:-}"
+
+  local -r url="https://api.telegram.org/bot${api_key}/sendMessage"
+
+  curl -sSq \
+    --max-time 10 --retry 5 --retry-delay 2 --retry-max-time 10 \
+    -d "disable_web_page_preview=true" \
+    -d "parse_mode=MarkdownV2" \
+    -d "chat_id=${chat_id}" \
+    --data-urlencode "text@"<(cat -- "${args[@]}") \
+    "${url}"
+
+  local -r return_code=$?
+
+  printf "\n"
+
+  return ${return_code}
+}
+
+# Function packaging
+# Idea was taken from http://bash3boilerplate.sh/
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  # Rename 'main' function...
+  readonly f=$(declare -f "${__base}")
+  eval "function ${__base} ${f#*"()"}"
+  unset f; unset -f "main"
+  # ...and export it with the same name as script have
+  export -f "${__base?}"
+else
+  main "$@"
+  exit $?
+fi
